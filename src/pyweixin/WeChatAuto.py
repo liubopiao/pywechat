@@ -3823,12 +3823,12 @@ class Messages():
                 if not is_group_chat and myName is None:myName=Contacts.check_my_info(close_weixin=False).get('昵称')
                 details_with_name=traverse_message(main_window,select=True,number=number)
                 if not is_group_chat:
-                    contents,senders,message_tpyes=parse_messages(friend,myName,details_with_name)
+                    contents,senders,message_types=parse_messages(friend,myName,details_with_name)
                 if is_group_chat:
                     if groupMembers:details_without_name=[]
                     if not groupMembers:details_without_name=traverse_message(main_window,select=False,number=number)
-                    contents,senders,message_tpyes=parse_group_messages(details_with_name,details_without_name,groupMembers)
-            chat_history=[{'消息发送人':chat[0],'消息内容':chat[1],'消息类型':chat[2]} for chat in zip(senders,contents,message_tpyes)]
+                    contents,senders,message_types=parse_group_messages(details_with_name,details_without_name,groupMembers)
+            chat_history=[{'消息发送人':chat[0],'消息内容':chat[1],'消息类型':chat[2]} for chat in zip(senders,contents,message_types)]
             if is_json:chat_history=json.dumps(chat_history,ensure_ascii=False,indent=2)
             if close_weixin:main_window.close()
         return chat_history
@@ -4144,6 +4144,27 @@ class Messages():
         return results
 
 
+'''
+            if not is_group:
+                for text in texts:
+                    search_result=re.search(rf'^({re.escape(friend)})\s',text)
+                    sender=myName if search_result is None else friend
+                    content=re.sub(rf'^{re.escape(sender)}\s','',text)
+                    senders.append(sender)
+                    contents.append(content)
+            if is_group and groupMembers:
+                for text in texts:
+                    for groupMember in groupMembers:
+                        search_result=re.search(rf'^({groupMember})\s',text)
+                        if search_result is not None:
+                            sender=search_result.group(1)
+                    content=re.sub(rf'^{sender}\s','',text)
+                    senders.append(sender)
+                    contents.append(content)
+            if is_group and not groupMembers:
+                contents=texts
+'''
+
 class Monitor():
     '''监听消息的一些方法'''          
 
@@ -4178,28 +4199,108 @@ class Monitor():
         Returns:
             details:该聊天窗口内的新消息(文本内容),格式为{'新消息总数':x,'文本数量':x,'文件数量':x,'图片数量':x,'视频数量':x,'链接数量':x,'文本内容':x,'消息发送人':x}
         '''
-        def extract_info(texts):
-            senders=[]
-            contents=[]
-            if not is_group:
-                for text in texts:
-                    search_result=re.search(rf'^({re.escape(friend)})\s',text)
-                    sender=myName if search_result is None else friend
-                    content=re.sub(rf'^{re.escape(sender)}\s','',text)
-                    senders.append(sender)
-                    contents.append(content)
-            if is_group and groupMembers:
-                for text in texts:
-                    for groupMember in groupMembers:
-                        search_result=re.search(rf'^({groupMember})\s',text)
-                        if search_result is not None:
-                            sender=search_result.group(1)
-                    content=re.sub(rf'^{sender}\s','',text)
-                    senders.append(sender)
-                    contents.append(content)
-            if is_group and not groupMembers:
-                contents=texts
-            return contents,senders
+
+        # def extract_info(chat_history_window, is_group, groupMembers=None,
+        #     friend=None, myName=None):
+        #     '''
+        #     提取聊天记录中的内容和发送人
+        #
+        #     Args:
+        #         chat_history_window: 聊天记录窗口
+        #         is_group: 是否是群聊
+        #         groupMembers: 群成员列表（群聊时需要）
+        #         friend: 好友名称（非群聊时需要）
+        #         myName: 我的名称（非群聊时需要）
+        #     '''
+        #     details_with_name = traverse_chat_history(chat_history_window, select=True, number=99)
+        #
+        #     if not is_group:
+        #         # 非群聊
+        #         contents, senders, _, _ = parse_chat_history(friend, myName, details_with_name)
+        #     else:
+        #         # 群聊
+        #         if groupMembers:
+        #             details_without_name = []
+        #             contents, senders, _, _ = parse_group_chat_history(details_with_name, details_without_name,
+        #                                                                groupMembers)
+        #         else:
+        #             details_without_name = traverse_chat_history(chat_history_window, select=False, number=0)
+        #             contents, senders, _, _ = parse_group_chat_history(details_with_name, details_without_name, [])
+        #     dialog_window.close()
+        #     return contents, senders
+        #
+
+        def extract_group_chat_messages(friend: str, number: int) -> tuple[list[str], list[str]]:
+
+            senders = []
+            contents = []
+            chat_history_window = None
+
+            try:
+                chat_history_window = Navigator.open_chat_history(
+                    friend=friend,
+                    is_maximize=None,
+                    close_weixin=False,
+                    search_pages=0
+                )
+                time.sleep(0.3)
+
+                chat_history_list = chat_history_window.child_window(**Lists.ChatHistoryList)
+
+                latest_message = Tools.select_chatHistoryList(chat_history_window)
+                if latest_message is None:
+                    return [], []
+
+                timestamp_pattern = Regex_Patterns.Chathistory_Timestamp_pattern
+                runtime_ids = []
+                recorded_num = 0
+                max_attempts = number * 2  # 防止死循环
+
+                while recorded_num < number and recorded_num < max_attempts:
+                    selected = [item for item in chat_history_list.children() if item.has_keyboard_focus()]
+
+                    if selected:
+                        current_id = selected[0].element_info.runtime_id
+
+                        # 检查是否到达底部（最后两次 ID 相同）
+                        if runtime_ids and runtime_ids[-1] == current_id:
+                            print(f"⚠️ 已到达底部，共提取 {recorded_num} 条消息")
+                            break
+
+                        runtime_ids.append(current_id)
+
+                        if selected[0].class_name() != 'mmui::ChatItemView':
+                            recorded_num += 1
+                            text = selected[0].window_text()
+                            content = timestamp_pattern.sub('', text).strip()
+
+                            parts = content.split(' ', 1)
+                            if len(parts) == 2:
+                                sender, content = parts[0], parts[1].strip()
+                            else:
+                                sender = '未知'
+                                content = text.strip()
+
+                            senders.append(sender)
+                            contents.append(content)
+                            print(f"  [{recorded_num}] {sender}: {content[:30]}...")
+
+                    pyautogui.press('down', _pause=False)
+                    time.sleep(0.05)
+
+                pyautogui.press('esc')
+                chat_history_list.type_keys('{HOME}')
+
+            except Exception as e:
+                print(f"❌ 提取失败: {e}")
+                return [], []
+
+            finally:
+                if chat_history_window:
+                    chat_history_window.close()
+
+            return senders, contents
+
 
         friend=dialog_window.window_text()
         chatName=dialog_window.child_window(**Texts.CurrentChatNameText)
@@ -4218,6 +4319,7 @@ class Monitor():
             media_folder=os.path.join(target_folder,'Images')
             os.makedirs(media_folder,exist_ok=True)
         total=0
+        text_count=0
         link_count=0
         video_count=0
         image_count=0
@@ -4236,21 +4338,25 @@ class Monitor():
         chatfile_folder=Tools.where_chatfile_folder()
         chatList=dialog_window.child_window(**Lists.FriendChatList)#聊天界面内存储所有信息的容器
         timestamp_pattern=Regex_Patterns.Message_Timestamp_pattern#系统消息的时间戳
-        if chatList.children(control_type='CheckBox'):
-            visibile_items=chatList.children(control_type='CheckBox')
+        if chatList.children(control_type='ListItem'):
+            visibile_items=chatList.children(control_type='ListItem')
             initial_runtimeids=[item.element_info.runtime_id for item in visibile_items]
-        if not chatList.children(control_type='CheckBox'):initial_runtimeids=[]
+        if not chatList.children(control_type='ListItem'):initial_runtimeids=[]
+
         end_timestamp=time.time()+duration#根据秒数计算截止时间
         SystemSettings.open_listening_mode(volume=False)
         while time.time()<end_timestamp:
-            visibile_items=chatList.children(control_type='CheckBox')
+            visibile_items=chatList.children(control_type='ListItem')
             newItems=[item for item in visibile_items if item.element_info.runtime_id not in initial_runtimeids]
             if newItems: 
                 #改为列表轮询
                 for item in newItems:
-                    texts.append(item.window_text())
+                    if not timestamp_pattern.search(item.window_text()):
+                        texts.append(item.window_text())
                     if item.class_name()=='mmui::ChatItemView' and not timestamp_pattern.search(item.window_text()):
                         memberEvents.append(item.window_text())
+                    if item.class_name()=='mmui::ChatTextItemView':
+                        text_count+=1
                     if item.class_name()=='mmui::ChatBubbleItemView' and link_label in item.window_text():
                         link_count+=1
                     if item.class_name()=='mmui::ChatBubbleReferItemView' and image_labal in item.window_text():
@@ -4267,9 +4373,11 @@ class Monitor():
         SystemSettings.close_listening_mode()
         contents,senders=extract_info(texts)
         #最后结束时再批量复制到target_folder,不在循环里逐个复制是考虑到若文件过大(几百mb)没有自动下载完成移动不了
+
+        contents, senders =extract_group_chat_messages(friend=friend, number=total)
         if save_file and files:SystemSettings.copy_files(files,file_folder)#文件复制粘贴到target_folder/Files内
         if save_media and media_count:Messages.save_media(friend=friend,number=media_count,target_folder=target_folder)#保存图片到target_folder/Images内
-        details={'新消息总数':total,'文本数量':len(texts),'文件数量':len(files),'图片数量':image_count,'视频数量':video_count,'链接数量':link_count,'文本内容':contents,'消息发送人':senders,'出入群通知':memberEvents}
+        details={'新消息总数':total,'文本数量':text_count,'文件数量':len(files),'图片数量':image_count,'视频数量':video_count,'链接数量':link_count,'文本内容':contents,'消息发送人':senders,'出入群通知':memberEvents}
         if close_dialog_window:dialog_window.close()
         return details
 

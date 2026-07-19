@@ -344,6 +344,7 @@ class Independent_window_Control():
         self.Version=Version
         self.ChatHistoryWindow={'control_type':'Window','class_name':'mmui::SearchMsgUniqueChatWindow','framework_id':'Qt'}#聊天记录窗口
         if self.language=='简体中文':
+            self.SingleChatWindow = {'class_name': 'mmui::ChatSingleWindow', 'title': ''}
             self.AddFriendWindow={'title':'添加朋友','class_name':"mmui::AddFriendWindow",'control_type':'Window'}#添加朋友窗口
             self.SettingsWindow={'title':'设置','class_name':"mmui::PreferenceWindow",'control_type':'Window','auto_id':"PreferenceWindow"}#微信设置窗口
             self.ContactManagerWindow={'title':'通讯录管理','class_name':"mmui::ContactsManagerWindow"}#通讯录管理窗口
